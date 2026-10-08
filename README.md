@@ -7,6 +7,10 @@ A personal library of AI skills for SAP BTP developers. These skills extend Clau
 | Skill | Description |
 |-------|-------------|
 | [`btp-xs-security`](./skills/btp-xs-security/SKILL.md) | Write, review, and troubleshoot `xs-security.json` (XSUAA authorization descriptor) for SAP BTP apps |
+| [`btp-mta-descriptor`](./skills/btp-mta-descriptor/SKILL.md) | Write, review, and troubleshoot `mta.yaml` MTA deployment descriptors for SAP BTP CAP applications |
+| [`cap-cds-model`](./skills/cap-cds-model/SKILL.md) | Write CAP CDS schema, service definitions, authorization rules, and Fiori annotations |
+| [`btp-destination`](./skills/btp-destination/SKILL.md) | Configure BTP Destination Service entries — OAuth2, BasicAuth, Principal Propagation, Cloud Connector |
+| [`ai-core-deployment`](./skills/ai-core-deployment/SKILL.md) | Configure SAP AI Core deployments, Generative AI Hub access, serving templates, and resource groups |
 
 ## Installation
 
@@ -14,6 +18,10 @@ Install a specific skill using the `npx skills` CLI:
 
 ```bash
 npx skills add jitendrasingh1305/sap-btp-ai-skills-hub --skill btp-xs-security
+npx skills add jitendrasingh1305/sap-btp-ai-skills-hub --skill btp-mta-descriptor
+npx skills add jitendrasingh1305/sap-btp-ai-skills-hub --skill cap-cds-model
+npx skills add jitendrasingh1305/sap-btp-ai-skills-hub --skill btp-destination
+npx skills add jitendrasingh1305/sap-btp-ai-skills-hub --skill ai-core-deployment
 ```
 
 Install all skills in this repo:

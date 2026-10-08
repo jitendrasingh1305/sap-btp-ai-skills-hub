@@ -403,3 +403,29 @@ If the user asks for something XSUAA does not support (e.g., dynamic scopes at r
 > - [alternative approach]
 >
 > If you need fine-grained per-record access control, consider combining XSUAA with CAP's instance-based authorization (`@requires` / `@restrict` annotations)."
+
+### Role Collections Not Visible in BTP Cockpit
+> "Role collections defined in `xs-security.json` are only created when the XSUAA service instance is **created or updated**. If you added role collections after the initial deployment, they won't appear until you update the service instance:
+> ```bash
+> cf update-service <xsuaa-instance-name> -c xs-security.json
+> ```
+> Then go to BTP Cockpit → Security → Role Collections to verify they appear."
+
+### xsappname Conflict Across Spaces
+> "The error `xsappname already exists` means another XSUAA instance in the same subaccount is using the same `xsappname`. Since subaccount is the scope for uniqueness, fix this by appending `${space}` to make it space-specific:
+> ```json
+> { \"xsappname\": \"my-app-${space}\" }
+> ```
+> Or in mta.yaml config:
+> ```yaml
+> config:
+>   xsappname: my-app-${space}
+> ```"
+
+### JWT Token Missing Expected Scope
+> "If the JWT token is missing an expected scope, work through this checklist:
+> 1. Is the scope defined in `xs-security.json`? → Check `scopes` array
+> 2. Is the scope referenced in a role template? → Check `scope-references`
+> 3. Is the role template in a role collection? → Check `role-collections`
+> 4. Is the role collection assigned to the user? → BTP Cockpit → Security → Role Collections
+> 5. Did the user log out and back in after the role was assigned? → Token is issued at login, changes only apply on next login"

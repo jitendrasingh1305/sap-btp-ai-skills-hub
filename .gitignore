@@ -23,3 +23,5 @@ npm-debug.log*
 
 # Agent installs (local only)
 .agents/
+.claude/
+skills-lock.json
