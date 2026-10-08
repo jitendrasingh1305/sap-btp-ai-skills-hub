@@ -1,0 +1,22 @@
+# Normalize line endings to LF on commit (works on both Mac and Windows)
+* text=auto eol=lf
+
+# Markdown files
+*.md text eol=lf
+
+# JSON files
+*.json text eol=lf
+
+# Shell scripts — always LF
+*.sh text eol=lf
+
+# Windows batch files — always CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binary files — no line ending conversion
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
+*.zip binary
