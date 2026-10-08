@@ -1,0 +1,43 @@
+# SAP BTP AI Skills Hub
+
+A personal library of AI skills for SAP BTP developers. These skills extend Claude Code and other AI agents with SAP-specific knowledge — so you spend less time looking up docs and more time building.
+
+## Available Skills
+
+| Skill | Description |
+|-------|-------------|
+| [`btp-xs-security`](./skills/btp-xs-security/SKILL.md) | Write, review, and troubleshoot `xs-security.json` (XSUAA authorization descriptor) for SAP BTP apps |
+
+## Installation
+
+Install a specific skill using the `npx skills` CLI:
+
+```bash
+npx skills add jitendrasingh1305/sap-btp-ai-skills-hub --skill btp-xs-security
+```
+
+Install all skills in this repo:
+
+```bash
+npx skills add jitendrasingh1305/sap-btp-ai-skills-hub
+```
+
+## Usage
+
+Once installed, the skill activates automatically in Claude Code when you mention relevant keywords — no slash command needed. For example:
+
+- *"Generate an xs-security.json for my CAP app with Viewer and Admin roles"*
+- *"Why am I getting insufficient_scope error?"*
+- *"Convert my app to multi-tenant XSUAA config"*
+
+## Contributing
+
+Skills are plain Markdown files. To add a new skill:
+
+1. Create a folder under `skills/<skill-slug>/`
+2. Add a `SKILL.md` with YAML frontmatter (`name`, `description`) and instructions
+3. Submit a PR
+
+## License
+
+Apache 2.0 — see [LICENSE](./LICENSE)
