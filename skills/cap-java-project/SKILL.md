@@ -46,14 +46,15 @@ I'll generate the following project structure for <app-name>:
 
 <app-name>/
 ├── package.json              # Root — CDS CLI for HANA schema build
-├── pom.xml                   # Root Maven POM (multi-module)
+├── .cdsrc.json               # CDS build config — HANA task only
+├── pom.xml                   # Root Maven POM (multi-module container)
 ├── .gitignore                # Java + Maven + Node ignores
 ├── xs-security.json          # XSUAA authorization descriptor
 ├── mta.yaml                  # MTA deployment descriptor
 ├── db/
 │   └── schema.cds            # Data model — entities and relationships
 ├── srv/
-│   ├── pom.xml               # Spring Boot + CAP Java dependencies
+│   ├── pom.xml               # Spring Boot + CAP Java dependencies (self-contained)
 │   ├── <app-name>-service.cds  # OData service definition
 │   └── src/main/
 │       ├── java/<package>/
@@ -94,7 +95,27 @@ Generate each file completely. Never truncate or use placeholders like `// add m
 
 ---
 
-### File 2: `pom.xml` (root Maven POM)
+### File 2: `.cdsrc.json`
+
+```json
+{
+  "build": {
+    "target": "gen",
+    "tasks": [
+      { "for": "hana", "src": "db", "options": { "model": ["db", "srv"] } }
+    ]
+  },
+  "hana": {
+    "deploy-format": "hdbtable"
+  }
+}
+```
+
+**Critical:** Include ONLY the `hana` build task — NOT `java`. The `cds-maven-plugin` in `srv/pom.xml` handles Java code generation during `mvn package`. If you include the `java` task, CDS copies sources to `gen/srv/` which is NOT what `mbt build` expects (it runs `mvn` from `path: srv`).
+
+---
+
+### File 3: `pom.xml` (root Maven POM — multi-module container only)
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -112,43 +133,14 @@ Generate each file completely. Never truncate or use placeholders like `// add m
   <modules>
     <module>srv</module>
   </modules>
-
-  <properties>
-    <java.version>21</java.version>
-    <cds.services.version>3.4.0</cds.services.version>
-  </properties>
-
-  <dependencyManagement>
-    <dependencies>
-      <dependency>
-        <groupId>com.sap.cds</groupId>
-        <artifactId>cds-services-bom</artifactId>
-        <version>${cds.services.version}</version>
-        <type>pom</type>
-        <scope>import</scope>
-      </dependency>
-    </dependencies>
-  </dependencyManagement>
-
-  <build>
-    <pluginManagement>
-      <plugins>
-        <plugin>
-          <groupId>com.sap.cds</groupId>
-          <artifactId>cds-maven-plugin</artifactId>
-          <version>${cds.services.version}</version>
-        </plugin>
-      </plugins>
-    </pluginManagement>
-  </build>
 </project>
 ```
 
-**Note:** Check the latest `cds.services.version` at https://mvnrepository.com/artifact/com.sap.cds/cds-services-bom before deploying. Replace `<java-group-id>` with the user's base package (e.g., `com.example`).
+**Note:** The root pom.xml is a thin multi-module container only. It does NOT manage Spring Boot or CDS dependencies — `srv/pom.xml` handles all of that via its own parent (`spring-boot-starter-parent`).
 
 ---
 
-### File 3: `.gitignore`
+### File 4: `.gitignore`
 
 ```
 # Maven
@@ -186,7 +178,7 @@ default-env.json
 
 ---
 
-### File 4: `xs-security.json`
+### File 5: `xs-security.json`
 
 Generate based on the roles the user provided:
 
@@ -247,7 +239,7 @@ Generate based on the roles the user provided:
 
 ---
 
-### File 5: `mta.yaml`
+### File 6: `mta.yaml`
 
 ```yaml
 _schema-version: '3.1'
@@ -269,10 +261,11 @@ modules:
     path: srv
     parameters:
       buildpack: java_buildpack
-      memory: 512M
+      memory: 1024M
       disk-quota: 1024M
-      readiness-health-check-type: http
-      readiness-health-check-http-endpoint: /actuator/health
+      readiness-health-check-type: process
+    properties:
+      JBP_CONFIG_OPEN_JDK_JRE: "[jre: {version: 21.+}]"
     build-parameters:
       builder: custom
       commands:
@@ -349,9 +342,14 @@ resources:
       service-plan: extended
 ```
 
+**Critical production notes:**
+- `memory: 1024M` is the minimum for Java buildpack — 512M fails because JVM pre-allocates ~640M for code cache + metaspace + thread stacks, leaving no heap.
+- `JBP_CONFIG_OPEN_JDK_JRE: "[jre: {version: 21.+}]"` is REQUIRED — `java_buildpack` defaults to Java 8 which cannot run Spring Boot 3.x (compiled for Java 17+).
+- `readiness-health-check-type: process` — NOT `http`. Using `/actuator/health` causes the deploy to hang because Spring Boot reports HANA as DOWN until the db-deployer task completes (race condition).
+
 ---
 
-### File 6: `db/schema.cds`
+### File 7: `db/schema.cds`
 
 ```cds
 namespace <app.name>;
@@ -368,20 +366,21 @@ entity <Entity2> : cuid, managed {
 
 ---
 
-### File 7: `srv/<app-name>-service.cds`
+### File 8: `srv/<app-name>-service.cds`
 
 Use scope names matching xs-security.json in `@restrict.to` (lowercase, no `$XSAPPNAME.` prefix):
 
 ```cds
 using { <app.name> as db } from '../db/schema';
 
-@path: '/api/v1'
-service <AppName>Service {
+@path: '/<app-name>'
+service <AppName>Service @(requires: 'authenticated-user') {
 
   @restrict: [
-    { grant: 'READ',  to: ['read', 'write', 'admin'] },
-    { grant: 'WRITE', to: ['write', 'admin'] },
-    { grant: '*',     to: 'admin' }
+    { grant: 'READ',   to: ['read', 'write', 'admin'] },
+    { grant: 'CREATE', to: ['write', 'admin'] },
+    { grant: 'UPDATE', to: ['write', 'admin'] },
+    { grant: 'DELETE', to: ['admin'] }
   ]
   entity <Entity1> as projection on db.<Entity1>;
 
@@ -393,11 +392,11 @@ service <AppName>Service {
 }
 ```
 
-**Note:** `@path: '/api/v1'` sets the OData base path. The full URL becomes `/api/v1/<Entity>`. Adjust the path as needed. The xs-app.json catch-all route forwards all paths to the backend so any `@path` value works.
+**Note:** `@path: '/<app-name>'` sets the OData base path. The catch-all xs-app.json route forwards all paths to the backend, so any `@path` value works. xs-app.json uses a catch-all `^/(.*)$` route — do NOT use path-specific routes like `/odata/v4/`.
 
 ---
 
-### File 8: `srv/pom.xml`
+### File 9: `srv/pom.xml`
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -407,13 +406,33 @@ service <AppName>Service {
   <modelVersion>4.0.0</modelVersion>
 
   <parent>
-    <groupId><java-group-id></groupId>
-    <artifactId><app-name></artifactId>
-    <version>1.0.0-SNAPSHOT</version>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-parent</artifactId>
+    <version>3.4.1</version>
+    <relativePath/>
   </parent>
 
+  <groupId><java-group-id></groupId>
   <artifactId><app-name>-srv</artifactId>
+  <version>1.0.0-SNAPSHOT</version>
   <packaging>jar</packaging>
+
+  <properties>
+    <java.version>21</java.version>
+    <cds.services.version>3.4.0</cds.services.version>
+  </properties>
+
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>com.sap.cds</groupId>
+        <artifactId>cds-services-bom</artifactId>
+        <version>${cds.services.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
 
   <dependencies>
     <!-- CAP Java Spring Boot starter -->
@@ -422,24 +441,10 @@ service <AppName>Service {
       <artifactId>cds-starter-spring-boot</artifactId>
     </dependency>
 
-    <!-- CF / BTP auto-configuration: XSUAA + HANA bindings -->
+    <!-- CF / BTP auto-configuration: XSUAA + HANA bindings (includes cds-feature-hana) -->
     <dependency>
       <groupId>com.sap.cds</groupId>
       <artifactId>cds-starter-cloudfoundry</artifactId>
-    </dependency>
-
-    <!-- HANA adapter (production) -->
-    <dependency>
-      <groupId>com.sap.cds</groupId>
-      <artifactId>cds-adapter-hana</artifactId>
-      <scope>runtime</scope>
-    </dependency>
-
-    <!-- OData v4 adapter -->
-    <dependency>
-      <groupId>com.sap.cds</groupId>
-      <artifactId>cds-adapter-odata-v4</artifactId>
-      <scope>runtime</scope>
     </dependency>
 
     <!-- H2 for local development -->
@@ -468,16 +473,13 @@ service <AppName>Service {
       <plugin>
         <groupId>com.sap.cds</groupId>
         <artifactId>cds-maven-plugin</artifactId>
+        <version>${cds.services.version}</version>
         <executions>
           <execution>
             <id>generate</id>
             <goals>
               <goal>generate</goal>
             </goals>
-            <configuration>
-              <!-- Point to parent directory so plugin finds db/ and srv/ CDS files -->
-              <baseDirectory>${project.basedir}/..</baseDirectory>
-            </configuration>
           </execution>
         </executions>
       </plugin>
@@ -496,9 +498,15 @@ service <AppName>Service {
 </project>
 ```
 
+**Critical production notes:**
+- `srv/pom.xml` MUST use `spring-boot-starter-parent` as its parent (not the root pom.xml). This gives Spring Boot BOM which manages `h2`, `spring-boot-starter-actuator`, and compiler versions.
+- `cds-starter-cloudfoundry` already includes `cds-feature-hana` transitively. Do NOT add `cds-adapter-hana` separately — it does not exist as a standalone artifact in CAP Java 3.4.0.
+- The `cds-maven-plugin` generates Java entity classes in `src/gen/java/<service-package>/`. The generated package name is the service name in lowercase (e.g., `timesheetservice.*`), NOT `cds.gen.<service>.*`.
+- Do NOT include `<baseDirectory>` in the cds-maven-plugin configuration — it is not a recognized parameter in 3.4.0. The plugin finds CDS files automatically from the project structure.
+
 ---
 
-### File 9: `srv/src/main/resources/application.yaml`
+### File 10: `srv/src/main/resources/application.yaml`
 
 ```yaml
 server:
@@ -509,13 +517,11 @@ spring:
     activate:
       on-profile: default
 
-  # H2 in-memory database for local development
   sql:
     init:
       mode: always
 
   security:
-    # Basic auth for local testing — disable in production (handled by XSUAA)
     user:
       name: admin
       password: admin
@@ -532,7 +538,7 @@ management:
 cds:
   datasource:
     auto-config:
-      enabled: false   # disable CF auto-config in local profile
+      enabled: false
 
 ---
 spring:
@@ -540,8 +546,6 @@ spring:
     activate:
       on-profile: cloud
 
-# On BTP CF: HANA + XSUAA are auto-configured via VCAP_SERVICES binding
-# cds-starter-cloudfoundry handles all connection setup automatically
 management:
   endpoints:
     web:
@@ -551,12 +555,11 @@ management:
 
 **Notes:**
 - Local profile (`default`): H2 in-memory + basic auth (admin/admin)
-- Cloud profile (`cloud`): activated automatically on CF by `cds-starter-cloudfoundry` — HANA and XSUAA are configured via VCAP_SERVICES
-- The `cloud` Spring profile is activated by `cds-starter-cloudfoundry` when `VCAP_SERVICES` is present
+- Cloud profile (`cloud`): activated automatically on CF by `cds-starter-cloudfoundry` when `VCAP_SERVICES` is present — HANA and XSUAA are configured automatically via VCAP_SERVICES bindings
 
 ---
 
-### File 10: `srv/src/main/java/<package>/Application.java`
+### File 11: `srv/src/main/java/<package>/Application.java`
 
 ```java
 package <java.package>;
@@ -575,9 +578,9 @@ public class Application {
 
 ---
 
-### File 11: `srv/src/main/java/<package>/handlers/<Entity>Handler.java`
+### File 12: `srv/src/main/java/<package>/handlers/<Entity>Handler.java`
 
-Generate one handler per entity with common lifecycle hooks:
+**Important:** The generated CDS entity classes live in package `<service-name-lowercase>.*` (e.g., `timesheetservice.*`), NOT `cds.gen.<service>.*`. Always check `srv/src/gen/java/` after first `mvn package` to confirm the actual package name.
 
 ```java
 package <java.package>.handlers;
@@ -586,28 +589,31 @@ import com.sap.cds.services.handler.EventHandler;
 import com.sap.cds.services.handler.annotations.Before;
 import com.sap.cds.services.handler.annotations.ServiceName;
 import com.sap.cds.services.cds.CdsCreateEventContext;
-import cds.gen.<service-package>.<Entity>_;
+
+import <service-package>.<ServiceName>_;
+import <service-package>.<Entity>_;
+
 import org.springframework.stereotype.Component;
 
 @Component
-@ServiceName("<AppName>Service")
+@ServiceName(<ServiceName>_.CDS_NAME)
 public class <Entity>Handler implements EventHandler {
 
     @Before(event = "CREATE", entity = <Entity>_.CDS_NAME)
     public void beforeCreate(CdsCreateEventContext context) {
-        // Set defaults or validate before CREATE
         context.getCqn().entries().forEach(entry -> {
+            // Set defaults or validate before CREATE
             // example: entry.putIfAbsent("status", "open");
         });
     }
 }
 ```
 
-**Note:** The `cds.gen.<service-package>` classes are auto-generated by `cds-maven-plugin` during `mvn package`. The exact package depends on the service name and CDS namespace.
+**Note:** The `<service-package>` is the service name in lowercase (e.g., for service `TimesheetService` → package `timesheetservice`).
 
 ---
 
-### File 12: `app/router/package.json`
+### File 13: `app/router/package.json`
 
 ```json
 {
@@ -625,7 +631,7 @@ public class <Entity>Handler implements EventHandler {
 
 ---
 
-### File 13: `app/router/xs-app.json`
+### File 14: `app/router/xs-app.json`
 
 ```json
 {
@@ -664,10 +670,11 @@ cd <app-name>/srv
 mvn spring-boot:run
 # Opens at http://localhost:8080
 # Uses H2 in-memory + basic auth (admin/admin)
-# OData at: http://localhost:8080/odata/v4/<AppName>Service
+# OData at: http://localhost:8080/<app-name>/<Entity>
 
 ### Deploy to CF
 cd <app-name>
+npm install       # generates package-lock.json
 mbt build
 cf deploy mta_archives/<app-name>_1.0.0.mtar
 
@@ -675,7 +682,7 @@ cf deploy mta_archives/<app-name>_1.0.0.mtar
 1. BTP Cockpit → Security → Role Collections
 2. Assign <AppName> Viewer / Editor / Admin to your user
 3. Open the app: cf app <app-name>-router (shows the URL)
-4. OData endpoint: https://<router-url>/odata/v4/<AppName>Service
+4. OData endpoint: https://<router-url>/<app-name>/<Entity>
 ```
 
 ---
@@ -689,34 +696,50 @@ cf deploy mta_archives/<app-name>_1.0.0.mtar
 > "This skill generates CAP Java projects. For CAP Node.js, use the `cap-nodejs-project` skill instead."
 
 ### `mvn package` fails — cds-maven-plugin cannot find CDS model
-> "The `cds-maven-plugin` needs to find the CDS files relative to the `srv/pom.xml`. Check:
-> 1. `db/schema.cds` exists at the project root level (not inside `srv/`)
-> 2. `srv/<app-name>-service.cds` exists at the `srv/` folder level (alongside `srv/pom.xml`)
-> 3. The plugin's `<baseDirectory>${project.basedir}/..</baseDirectory>` points to the correct parent folder
-> 4. Run `mvn clean package -DskipTests` from inside `srv/` and check the full error"
+> "The `cds-maven-plugin` runs from `srv/` and auto-discovers CDS files. Check:
+> 1. `db/schema.cds` exists at the project root level (sibling of `srv/`)
+> 2. `srv/<app-name>-service.cds` exists inside `srv/`
+> 3. Run `mvn clean package -DskipTests` from `srv/` and check the full error
+> 4. The generated classes land in `srv/src/gen/java/<service-package>/` — do NOT add `<baseDirectory>` to plugin config, it is not a valid parameter in 3.4.0"
+
+### Compilation fails — cannot find generated CDS entity classes
+> "The generated entity classes are in `srv/src/gen/java/<service-package>/` where `<service-package>` is the service name in lowercase (e.g., `TimesheetService` → `timesheetservice`).
+> Import them as `import timesheetservice.Timesheets;` — NOT `import cds.gen.timesheetservice.Timesheets;`
+> Run `mvn clean generate-sources` first if the gen folder is missing, then check what was generated."
+
+### Deploy fails — JVM memory error (heap calculation)
+> "Error: `There is insufficient memory remaining for heap. Memory available for allocation 512M is less than allocated memory 646152K`
+> Fix: set `memory: 1024M` in mta.yaml for the Java srv module. Java buildpack pre-allocates ~640M for code cache + metaspace + thread stacks, leaving no room for heap at 512M."
+
+### Deploy fails — UnsupportedClassVersionError (Java 8 vs Spring Boot 3.x)
+> "Error: `class file version 61.0 ... this version of the Java Runtime only recognizes class file versions up to 52.0`
+> Fix: Add `JBP_CONFIG_OPEN_JDK_JRE: \"[jre: {version: 21.+}]\"` to the srv module's `properties` in mta.yaml. The `java_buildpack` defaults to Java 8; Spring Boot 3.x requires Java 17+."
+
+### Deploy hangs at 'Starting application' — readiness check fails
+> "The `/actuator/health` endpoint returns DOWN because HANA tables don't exist yet — the db-deployer task hasn't run yet (MTA deploys srv and db-deployer in parallel, a race condition).
+> Fix: use `readiness-health-check-type: process` (not `http`) in mta.yaml for the srv module. This lets the srv be marked ready as soon as the JVM process starts. The db-deployer will complete in the background and deploy the HANA schema."
 
 ### App returns 403 after login
 > "403 means XSUAA authenticated but CDS rejected the request.
 > 1. Verify role collection is assigned in BTP Cockpit → Security → Role Collections
 > 2. Log out, clear cookies, log in fresh in incognito — JWT is cached
 > 3. Check `@restrict.to` values match exact scope names from xs-security.json (e.g., `'read'` not `'Viewer'`)
-> 4. To test without restrictions temporarily, remove `@restrict` and use only `@path` on the service"
+> 4. To test without restrictions temporarily, remove `@restrict` and use only `requires: 'authenticated-user'` on the service"
 
 ### Deployment fails — org memory quota exceeded
-> "Stop unused apps to free quota: `cf stop <app-name>`. The db-deployer task also needs free headroom even though it stops after HDI deploy completes."
+> "Stop unused apps to free quota: `cf stop <app-name>`. The db-deployer task also needs free headroom even though it stops after HDI deploy completes. The Java srv needs 1024M — check free quota with `cf org <org-name>`."
 
 ### Login fails — redirect_uri does not match
 > "Add both `*.eu10.hana.ondemand.com/**` AND `*.eu10-005.hana.ondemand.com/**` to xs-security.json redirect-uris. Rebuild (`mbt build`) and redeploy to update the XSUAA service."
 
 ### `/actuator/health` returns 503 — app starts but health check fails
-> "The Spring Boot Actuator health endpoint is returning DOWN. Check:
-> 1. HANA Cloud instance is running (it auto-stops after inactivity)
-> 2. `cf logs <app-name>-srv --recent` for database connection errors
-> 3. Verify `leave-management-db` HDI container service binding: `cf services`
-> 4. Redeploy the db-deployer if HANA tables are missing: run `cf deploy` again"
+> "Spring Boot Actuator reports DOWN because HANA Cloud instance is stopped (it auto-stops after inactivity).
+> 1. Start HANA Cloud instance in BTP Cockpit → SAP HANA Cloud → Start
+> 2. `cf logs <app-name>-srv --recent` to see connection errors
+> 3. `cf restart <app-name>-srv` after HANA starts"
 
 ### `mbt build` fails — `npx cds build --production` error
-> "The root `package.json` must have `@sap/cds-dk` as a devDependency and `npm ci` must run before `cds build`. Check:
-> 1. Root `package.json` exists with `@sap/cds-dk` dependency
-> 2. `mta.yaml` `before-all` runs `npm ci` before `npx cds build --production`
+> "The root `package.json` must have `@sap/cds-dk` as a devDependency. Check:
+> 1. Run `npm install` first (generates package-lock.json), then `npm ci` works
+> 2. `mta.yaml` `before-all` runs `npm ci` then `npx cds build --production`
 > 3. Run `npx cds build --production` manually from the project root to see CDS errors"
