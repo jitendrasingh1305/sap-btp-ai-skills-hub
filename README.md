@@ -11,6 +11,8 @@ A personal library of AI skills for SAP BTP developers. These skills extend Clau
 | [`cap-cds-model`](./skills/cap-cds-model/SKILL.md) | Write CAP CDS schema, service definitions, authorization rules, and Fiori annotations |
 | [`btp-destination`](./skills/btp-destination/SKILL.md) | Configure BTP Destination Service entries — OAuth2, BasicAuth, Principal Propagation, Cloud Connector |
 | [`ai-core-deployment`](./skills/ai-core-deployment/SKILL.md) | Configure SAP AI Core deployments, Generative AI Hub access, serving templates, and resource groups |
+| [`cap-nodejs-project`](./skills/cap-nodejs-project/SKILL.md) | Generate a complete, deployable CAP Node.js project for BTP CF — production-tested end-to-end |
+| [`cap-java-project`](./skills/cap-java-project/SKILL.md) | Generate a complete, deployable CAP Java (Spring Boot) project for BTP CF with Maven and MTA |
 
 ## Installation
 
@@ -22,6 +24,8 @@ npx skills add jitendrasingh1305/sap-btp-ai-skills-hub --skill btp-mta-descripto
 npx skills add jitendrasingh1305/sap-btp-ai-skills-hub --skill cap-cds-model
 npx skills add jitendrasingh1305/sap-btp-ai-skills-hub --skill btp-destination
 npx skills add jitendrasingh1305/sap-btp-ai-skills-hub --skill ai-core-deployment
+npx skills add jitendrasingh1305/sap-btp-ai-skills-hub --skill cap-nodejs-project
+npx skills add jitendrasingh1305/sap-btp-ai-skills-hub --skill cap-java-project
 ```
 
 Install all skills in this repo:
