@@ -392,7 +392,7 @@ service <AppName>Service @(requires: 'authenticated-user') {
 }
 ```
 
-**Note:** `@path: '/<app-name>'` sets the OData base path. The catch-all xs-app.json route forwards all paths to the backend, so any `@path` value works. xs-app.json uses a catch-all `^/(.*)$` route — do NOT use path-specific routes like `/odata/v4/`.
+**Note:** In CAP Java 3.4.0, the OData V4 servlet is always mounted at `/odata/v4`. The `@path: '/<app-name>'` annotation sets the service-specific sub-path, so the actual OData URL is `/odata/v4/<app-name>/$metadata`, `/odata/v4/<app-name>/Employees`, etc. This differs from CAP Node.js where `@path` is the full standalone path. The catch-all xs-app.json route forwards all paths to the backend, so no special routing is needed for the `/odata/v4/` prefix.
 
 ---
 
@@ -439,6 +439,12 @@ service <AppName>Service @(requires: 'authenticated-user') {
     <dependency>
       <groupId>com.sap.cds</groupId>
       <artifactId>cds-starter-spring-boot</artifactId>
+    </dependency>
+
+    <!-- OData V4 adapter — NOT included in cds-starter-spring-boot 3.4.0; must be explicit -->
+    <dependency>
+      <groupId>com.sap.cds</groupId>
+      <artifactId>cds-adapter-odata-v4</artifactId>
     </dependency>
 
     <!-- CF / BTP auto-configuration: XSUAA + HANA bindings (includes cds-feature-hana) -->
@@ -500,9 +506,9 @@ service <AppName>Service @(requires: 'authenticated-user') {
 
 **Critical production notes:**
 - `srv/pom.xml` MUST use `spring-boot-starter-parent` as its parent (not the root pom.xml). This gives Spring Boot BOM which manages `h2`, `spring-boot-starter-actuator`, and compiler versions.
+- **`cds-adapter-odata-v4` MUST be added explicitly.** `cds-starter-spring-boot:3.4.0` does NOT include it in its transitive dependencies — without it, `CdsODataV4Servlet` is never registered and all OData requests return 404.
 - `cds-starter-cloudfoundry` already includes `cds-feature-hana` transitively. Do NOT add `cds-adapter-hana` separately — it does not exist as a standalone artifact in CAP Java 3.4.0.
 - The `cds-maven-plugin` generates Java entity classes in `src/gen/java/<service-package>/`. The generated package name is the service name in lowercase (e.g., `timesheetservice.*`), NOT `cds.gen.<service>.*`.
-- Do NOT include `<baseDirectory>` in the cds-maven-plugin configuration — it is not a recognized parameter in 3.4.0. The plugin finds CDS files automatically from the project structure.
 
 ---
 
